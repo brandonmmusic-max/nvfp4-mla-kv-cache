@@ -1,0 +1,6 @@
+FROM klc/glm52-nvfp4-dcpmtp:v3.1 AS v31
+
+FROM klc/glm52-nvfp4-dcpmtp:v3.3
+
+RUN mkdir -p /opt/nvfp4_extra
+COPY --from=v31 /opt/vllm/vllm/_C_stable_libtorch.abi3.so /opt/nvfp4_extra/_C_v31.so
