@@ -1,0 +1,59 @@
+# GLM-5.2-MXFP8-NVFP4-NF3-Hybrid served with nvfp4_ds_mla 4-bit MLA KV cache.
+# Measured: decode 88.5/87.3/53.5 t/s @ ctx 0/8K/32K (synthetic bench, conc 1),
+# real-prose ~55 t/s, KV pool 387K tokens (util 0.96) = +47% vs fp8.
+# 4x RTX PRO 6000 96GB (SM120), TP4/DCP4, MTP-4. Pull: verdictai/glm52-nvfp4-kv:v1
+name: glm52-nvfp4-kv
+services:
+  glm52:
+    image: verdictai/glm52-nvfp4-kv:v1
+    container_name: glm52-nvfp4-kv
+    network_mode: host
+    ipc: host
+    shm_size: 32g
+    gpus: all
+    ulimits: { memlock: -1, stack: 67108864 }
+    volumes:
+      - ${MODEL_DIR:-./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid}:/model:ro
+      - glm52-nvfp4-cache:/cache
+    environment:
+      CUTE_DSL_ARCH: sm_120a
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+      VLLM_USE_FLASHINFER_SAMPLER: "1"
+      VLLM_USE_B12X_MOE: "1"
+      VLLM_USE_B12X_SPARSE_INDEXER: "1"
+      B12X_W4A16_TC_DECODE: "1"
+      VLLM_ENABLE_PCIE_ALLREDUCE: "1"
+      VLLM_PCIE_ALLREDUCE_BACKEND: b12x
+      XDG_CACHE_HOME: /cache/jit
+    command:
+      - vllm
+      - serve
+      - /model
+      - --served-model-name=GLM-5.2
+      - --host=0.0.0.0
+      - --port=5001
+      - --trust-remote-code
+      - --tensor-parallel-size=4
+      - --decode-context-parallel-size=4
+      - --dcp-comm-backend=ag_rs
+      - --dcp-kv-cache-interleave-size=1
+      - --kv-cache-dtype=nvfp4_ds_mla        # <-- the 4-bit MLA KV cache (this repo)
+      - --attention-backend=B12X_MLA_SPARSE  # <-- required (nvfp4_ds_mla reader is on this path)
+      - --moe-backend=b12x
+      - --load-format=fastsafetensors
+      - -cc.pass_config.fuse_allreduce_rms=True
+      - --gpu-memory-utilization=0.96
+      - --max-model-len=250000
+      - --max-num-seqs=4
+      - --max-num-batched-tokens=4096
+      - --max-cudagraph-capture-size=16      # raise to 64 if GPU has capture headroom (faster decode)
+      - --async-scheduling
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser=glm47
+      - --reasoning-parser=glm45
+      - --speculative-config={"method":"mtp","num_speculative_tokens":4,"moe_backend":"b12x","draft_sample_method":"probabilistic"}
+      - --hf-overrides={"use_index_cache":true,"index_topk_pattern":"FFFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSS"}
+volumes:
+  glm52-nvfp4-cache:

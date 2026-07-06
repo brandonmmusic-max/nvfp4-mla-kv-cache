@@ -42,3 +42,35 @@ with vLLM-family forks on consumer/workstation Blackwell (SM120, e.g. RTX PRO 60
 
 Author: Brandon M. Music, 2026. Shared for research use; no license granted yet — open an
 issue if you want to use this commercially.
+
+## Serving (Docker Hub image)
+
+A ready-to-run image is published at **`verdictai/glm52-nvfp4-kv:v1`** (base layers
+cross-mounted from `madeby561/vllm-glm52-nvfp4-nf3-hybrid:v2`; this image adds the NVFP4
+MLA KV writer `.so` + the ported b12x MLA nvfp4 readers).
+
+```bash
+hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid
+docker pull verdictai/glm52-nvfp4-kv:v1
+MODEL_DIR=./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid docker compose -f serving/docker-compose.yml up -d
+```
+
+The only line that turns on the 4-bit MLA KV cache is:
+```
+--kv-cache-dtype=nvfp4_ds_mla   (with --attention-backend=B12X_MLA_SPARSE)
+```
+
+### Measured on this config (4x RTX PRO 6000 96GB, TP4/DCP4, MTP-4, util 0.96)
+| Metric | fp8 | nvfp4_ds_mla |
+|---|---|---|
+| KV pool | ~262K tok | **387K tok** (+47%) |
+| Decode t/s (synthetic bench, conc1, ctx 0 / 8K / 32K) | ~54 / 50 / 52 | **88.5 / 87.3 / 53.5** |
+| Prefill t/s (8K->128K) | ~2,880 -> 2,770 | 3,185 -> 2,842 |
+| Real-prose t/s (temp 1.0) | ~53 | ~55 |
+| Fidelity vs fp8 | — | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
+
+Rebuild from source: `docker build -t glm52-nvfp4-kv -f serving/Dockerfile .`
+
+Tuning notes: `--max-cudagraph-capture-size` 16 is conservative for memory headroom; **64
+is faster** if the GPUs have capture headroom (nvfp4's smaller KV pages usually free enough).
+`--max-num-seqs` can drop to 1-2 for single-user to free KV for longer `--max-model-len`.
