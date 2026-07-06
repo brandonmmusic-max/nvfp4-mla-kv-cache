@@ -90,15 +90,17 @@ and running the script as-is.**
 > around **~2,900 t/s**. Those figures were NOT produced by `llm_decode_bench` — they came from
 > inline boot-probe scripts I ran during bring-up, and they do **not** reproduce with the actual
 > script on the shipped image. I shouldn't have presented them as benchmark results; the numbers
-> above are the honest `llm_decode_bench` output on the published `:v2`. ~1,800 t/s is the
-> **robust** prefill for this config: I A/B-tested it with the PCIe all-reduce both OFF and ON
-> (cpp) and got the same result (1,804 vs 1,797 @ 8K). The old ~2,900+ figure was higher for two
-> reasons: (1) those older/probe runs reported prefill with a ctx-0 baseline subtracted (≈17% of
-> the gap), whereas this reports raw `tokens ÷ TTFT`; and (2) the older run's raw TTFT was lower
-> in a way that does **not** reproduce and that I could not attribute to any config lever —
-> all-reduce made no measurable difference. Decode (~51 t/s, flat 0→128k) is unaffected.
-> (`:v2` ships all-reduce off only because the *b12x* backend OOM'd at load; all-reduce on/cpp
-> boots fine and benches identically — it doesn't change the numbers.) See `benchmarks/speed.md`.
+> above are the honest `llm_decode_bench` output on the published `:v2`. **The old ~3,000 figure
+> was a different bench script, not a faster server** — proven: running the older
+> `llm_decode_bench` (no version field) against this same `:v2` server still yields **~3,015 @ 8K**,
+> while the current script (v0.4.24) yields **1,804** on the identical box. The old script (1)
+> subtracts the ctx-0 baseline (`ctx / (ttft − baseline)`; it prints `baseline TTFT subtracted`)
+> and (2) times a lean dedicated prefill probe (raw TTFT 2.84s), whereas the current script reports
+> raw `tokens ÷ TTFT` from an integrated decode-scout that includes full generation setup (raw TTFT
+> 4.55s). Both are legitimate — old ≈ GPU prefill-*compute* rate, new ≈ client-facing
+> time-to-first-token — but they are **different rulers on the same hardware.** Server config is
+> not the cause: an A/B with the PCIe all-reduce OFF vs ON (cpp) gave the same 1,804 vs 1,797.
+> Decode (~51 t/s, flat 0→128k) is unaffected. See `benchmarks/speed.md`.
 
 Rebuild the v2 image from source: `docker build -t verdictai/glm52-nvfp4-kv:v2 -f serving/Dockerfile.v2 .`
 (the `:v2` layer is just baked env + CMD on top of `:v1`, which carries the kernel + readers).

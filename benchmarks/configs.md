@@ -16,12 +16,14 @@ Published config (`verdictai/glm52-nvfp4-kv:v2`, `serving/docker-compose.yml`):
 > **Correction (2026-07-06).** This file previously (a) described the published config as
 > `:v1 / maxlen 250000` — that config OOM'd at load and never shipped; the shipped image is
 > `:v2 / maxlen 196608`; and (b) listed the DCP4 "published" prefill as **3,185 t/s**. That 3,185
-> is NOT the published number: it came from an earlier run using the script's baseline-subtracted
-> prefill formula plus a raw TTFT that does not reproduce. The unmodified `llm_decode_bench` on the
-> actual shipped `:v2` reports **1,804 t/s** (raw `tokens ÷ TTFT`), and it is robust — an A/B with
-> the PCIe all-reduce off vs on (cpp) gave the same result (1,804 vs 1,797 @ 8K), so all-reduce
-> does **not** explain the gap. The DCP-sweep rows below remain valid as a *relative* comparison
-> but their prefill absolutes are on that older/higher basis, not the shipped image.
+> is NOT the published number: it came from an **older, different `llm_decode_bench` script** (no
+> version field) that subtracts the ctx-0 baseline and times a lean prefill probe. Proven: that old
+> script run against the shipped `:v2` server today still yields **~3,015 @ 8K**, while the current
+> script (v0.4.24) yields **1,804** on the identical box — same hardware, different ruler. The
+> current script reports raw `tokens ÷ TTFT` from an integrated decode-scout. Server config is not
+> the cause: an A/B with the PCIe all-reduce off vs on (cpp) gave the same 1,804 vs 1,797 @ 8K. The
+> DCP-sweep rows below remain valid as a *relative* comparison but their prefill absolutes are on
+> the old ruler, not the shipped image.
 
 | Run | Image | KV dtype | DCP | maxlen | batched | util | graph | MTP | == published | Result (decode ctx0/8K/32K · prefill 8K · real-prose) |
 |-----|-------|----------|-----|--------|---------|------|-------|-----|--------------|-------------------------------------------------------|
@@ -38,10 +40,10 @@ Published config (`verdictai/glm52-nvfp4-kv:v2`, `serving/docker-compose.yml`):
 †The nvfp4-DCP4 short-context synthetic cells (88.5/87.3) did not reproduce; real-prose and the
 32K cell put DCP=4 decode at ~53 t/s. Treat DCP=4 real decode as ~53. See `speed.md`.
 
-‡3,185 is on the older basis (baseline-subtracted prefill formula + a raw TTFT that does not
-reproduce) and is NOT the shipped number. The published `:v2` measures **1,804** prefill @ 8K with
-the unmodified `llm_decode_bench` (raw `tokens ÷ TTFT`), robust to PCIe all-reduce on/off
-(A/B: 1,804 vs 1,797). See the Correction box above.
+‡3,185 came from an older, different bench script (baseline-subtracted formula + lean prefill
+probe). That old script on this same `:v2` server today still gives **~3,015 @ 8K**, vs **1,804**
+for the current v0.4.24 script (raw `tokens ÷ TTFT`) — same hardware, different ruler. Robust to
+PCIe all-reduce on/off (A/B: 1,804 vs 1,797). See the Correction box above.
 
 ## What each run isolated
 - **DCP sweep (DCP1/2/4)**: DCP=1 is the big speed lever on a no-NVLink rig (drops the cross-GPU

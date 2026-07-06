@@ -13,13 +13,15 @@ image are the table right below. Where anything further down disagrees, trust th
 - Some prefill figures I previously cited (~2,900 t/s) came from **inline boot-probe scripts,
   not `llm_decode_bench`.** They should never have been presented as bench results, and they do
   not reproduce on the shipped image.
-- The DCP-sweep prefill absolutes below (3,185 / 3,930 / 4,638) came from **earlier
-  `llm_decode_bench` runs whose prefill formula subtracted a ctx-0 baseline** (≈17% higher than
-  the raw `tokens ÷ TTFT` the current script reports), plus an older raw-TTFT measurement that
-  does not reproduce. They stay valid as a *relative* DCP comparison, but their absolute magnitude
-  is higher than the shipped image. The shipped `:v2` DCP4 measures **~1,804 @ 8K**, and it is
-  robust: an A/B with the PCIe all-reduce OFF vs ON (cpp) gave the same number (1,804 vs 1,797),
-  so all-reduce is **not** the cause of the difference.
+- The DCP-sweep prefill absolutes below (3,185 / 3,930 / 4,638) came from an **older, different
+  `llm_decode_bench` script** (no version field). Proven: running that old script against the
+  shipped `:v2` server today still yields **~3,015 @ 8K**, while the current script (v0.4.24)
+  yields **1,804** on the identical box — same hardware, different ruler. The old script (1)
+  subtracts the ctx-0 baseline (`ctx / (ttft − baseline)`) and (2) times a lean dedicated prefill
+  probe; the current one reports raw `tokens ÷ TTFT` from an integrated decode-scout. The sweep
+  rows stay valid as a *relative* DCP comparison, but their absolute magnitude is on the old
+  ruler. Server config is not the cause: an A/B (all-reduce OFF vs ON/cpp) gave the same 1,804 vs
+  1,797.
 
 ### Published `:v2` — unmodified `llm_decode_bench.py` (conc 1, all-reduce off, maxlen 196,608)
 | ctx  | Decode t/s | Prefill t/s (`tokens ÷ TTFT`, N=1) |
