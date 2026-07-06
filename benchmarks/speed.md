@@ -6,6 +6,32 @@ util 0.96, `B12X_MLA_SPARSE`. Bench: `llm_decode_bench.py` (unmodified), concurr
 30s/cell, max_tokens 8192. "Real-prose" = a 1500-token temp-1.0 thinking generation
 (the representative single-user rate).
 
+## Correction (2026-07-06) — measurement basis, read first
+The **authoritative, reproducible** numbers for the published `verdictai/glm52-nvfp4-kv:v2`
+image are the table right below. Where anything further down disagrees, trust this table.
+
+- Some prefill figures I previously cited (~2,900 t/s) came from **inline boot-probe scripts,
+  not `llm_decode_bench`.** They should never have been presented as bench results, and they do
+  not reproduce on the shipped image.
+- The DCP-sweep prefill absolutes below (3,185 / 3,930 / 4,638) came from **earlier
+  `llm_decode_bench` runs whose prefill formula subtracted a ctx-0 baseline** (≈17% higher than
+  the raw `tokens ÷ TTFT` the current script reports), plus an older raw-TTFT measurement that
+  does not reproduce. They stay valid as a *relative* DCP comparison, but their absolute magnitude
+  is higher than the shipped image. The shipped `:v2` DCP4 measures **~1,804 @ 8K**, and it is
+  robust: an A/B with the PCIe all-reduce OFF vs ON (cpp) gave the same number (1,804 vs 1,797),
+  so all-reduce is **not** the cause of the difference.
+
+### Published `:v2` — unmodified `llm_decode_bench.py` (conc 1, all-reduce off, maxlen 196,608)
+| ctx  | Decode t/s | Prefill t/s (`tokens ÷ TTFT`, N=1) |
+|------|-----------|------------------------------------|
+| 0    | 51.9      | —     |
+| 8k   | 51.7      | 1,804 |
+| 32k  | 50.1      | 1,807 |
+| 64k  | —         | 1,860 |
+| 128k | 51.5      | 1,754 |
+
+KV pool **407,808 tokens** (+47% vs fp8 ~262K). Decode is **flat ~51 t/s from 0→128k**.
+
 ## TL;DR
 - **nvfp4_ds_mla is a CAPACITY win, not a speed win.** It gives **+47% KV tokens** vs fp8,
   at a **~7% speed COST** — the 4-bit KV must be dequantized on every attention read, and on
@@ -45,11 +71,14 @@ raw speed, fp8 is marginally faster.
 ## Prefill lever ranking (measured, same nvfp4 image, 8K prefill t/s)
 | Change | Prefill t/s | Effect |
 |--------|-------------|--------|
-| DCP4, batched 2048 | 2,789 | baseline |
-| DCP4, batched 4096 | 3,185 | batched 2048->4096 = **+14%** |
+| DCP4, batched 2048 | 2,789 | baseline (older basis; also graph64/util0.965 — see note) |
+| DCP4, batched 4096 | 3,185 | **confounded** — this row also changed graph-cap + util, so the +14% is NOT batched-only |
 | DCP1, batched 4096 | 4,638 | + DCP4->DCP1 = **+46%** |
 
-**DCP is the dominant prefill lever, not `max-num-batched-tokens`** (which is only ~+14% here).
+**DCP is the dominant prefill lever, not `max-num-batched-tokens`.** The clean batched-only
+isolation (pinpoint A→B in `configs.md`, all else fixed) is **only +2%** (2,887→2,940); the
+"+14%" above is confounded by simultaneous graph-cap/util changes. All absolutes here are on the
+older basis (see the Correction box up top) — the shipped `:v2` DCP4 measures ~1,804 @ 8K.
 
 ## Raw decode bench (synthetic, conc 1) — for completeness
 | Config | ctx 0 | ctx 8K | ctx 32K |

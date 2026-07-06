@@ -74,14 +74,31 @@ settings decide whether it boots — both are now correct in `:v2` / the compose
 - **`--max-model-len 196608`** (~192K), the value this config was actually benched at. Some
   earlier notes said 250000; that was never the booted number.
 
-### Measured on this config (4x RTX PRO 6000 96GB, TP4/DCP4, MTP-4, util 0.96, maxlen 196608)
-| Metric | fp8 | nvfp4_ds_mla |
-|---|---|---|
-| KV pool | ~262K tok | **~408K tok** (+47%) |
-| Decode t/s (real-prose, single-user) | ~53 | ~53 (DCP4) / **75 (DCP1)** |
-| Prefill t/s (8K->128K) | ~2,880 -> 2,770 | ~2,900 -> 2,800 |
-| Real-prose t/s (temp 1.0) | ~53 | ~55 |
-| Fidelity vs fp8 | — | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
+### Measured on the published `:v2` — unmodified `llm_decode_bench.py`
+`--port 5001 --concurrency 1 --contexts 0,8k,32k,128k` · 4× RTX PRO 6000 96GB · TP4/DCP4 ·
+MTP-4 · util 0.96 · maxlen 196,608 · all-reduce off. **These are what you get pulling `:v2`
+and running the script as-is.**
+
+| Metric | nvfp4_ds_mla (published `:v2`) |
+|---|---|
+| KV pool | **407,808 tok** (+47% vs fp8 ~262K) |
+| Decode t/s (conc 1) @ ctx 0 / 8k / 32k / 128k | **51.9 / 51.7 / 50.1 / 51.5** (flat) |
+| Prefill t/s (`prompt_tokens ÷ TTFT`, N=1) @ 8k / 32k / 64k / 128k | **1,804 / 1,807 / 1,860 / 1,754** |
+| Fidelity vs fp8 | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
+
+> **Correction (2026-07-06) — read this.** An earlier version of this table listed prefill
+> around **~2,900 t/s**. Those figures were NOT produced by `llm_decode_bench` — they came from
+> inline boot-probe scripts I ran during bring-up, and they do **not** reproduce with the actual
+> script on the shipped image. I shouldn't have presented them as benchmark results; the numbers
+> above are the honest `llm_decode_bench` output on the published `:v2`. ~1,800 t/s is the
+> **robust** prefill for this config: I A/B-tested it with the PCIe all-reduce both OFF and ON
+> (cpp) and got the same result (1,804 vs 1,797 @ 8K). The old ~2,900+ figure was higher for two
+> reasons: (1) those older/probe runs reported prefill with a ctx-0 baseline subtracted (≈17% of
+> the gap), whereas this reports raw `tokens ÷ TTFT`; and (2) the older run's raw TTFT was lower
+> in a way that does **not** reproduce and that I could not attribute to any config lever —
+> all-reduce made no measurable difference. Decode (~51 t/s, flat 0→128k) is unaffected.
+> (`:v2` ships all-reduce off only because the *b12x* backend OOM'd at load; all-reduce on/cpp
+> boots fine and benches identically — it doesn't change the numbers.) See `benchmarks/speed.md`.
 
 Rebuild the v2 image from source: `docker build -t verdictai/glm52-nvfp4-kv:v2 -f serving/Dockerfile.v2 .`
 (the `:v2` layer is just baked env + CMD on top of `:v1`, which carries the kernel + readers).
