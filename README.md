@@ -76,15 +76,25 @@ settings decide whether it boots — both are now correct in `:v2` / the compose
 
 ### Measured on the published `:v2` — unmodified `llm_decode_bench.py`
 `--port 5001 --concurrency 1 --contexts 0,8k,32k,128k` · 4× RTX PRO 6000 96GB · TP4/DCP4 ·
-MTP-4 · util 0.96 · maxlen 196,608 · all-reduce off. **These are what you get pulling `:v2`
+**MTP-3** · util 0.96 · maxlen 196,608 · all-reduce off. **These are what you get pulling `:v2`
 and running the script as-is.**
 
-| Metric | nvfp4_ds_mla (published `:v2`) |
+| Metric | nvfp4_ds_mla (published `:v2`, MTP-3) |
 |---|---|
-| KV pool | **407,808 tok** (+47% vs fp8 ~262K) |
-| Decode t/s (conc 1) @ ctx 0 / 8k / 32k / 128k | **51.9 / 51.7 / 50.1 / 51.5** (flat) |
-| Prefill t/s (`prompt_tokens ÷ TTFT`, N=1) @ 8k / 32k / 64k / 128k | **1,804 / 1,807 / 1,860 / 1,754** |
+| KV pool | **~407K tok** (+47% vs fp8 ~262K) |
+| Decode t/s (conc 1) @ ctx 0 / 8k / 32k / 128k | **67.0 / 62.9 / 65.7 / 63.2** |
+| Real-prose t/s (temp 1.0, chat) | **~64** |
+| Prefill t/s (`prompt_tokens ÷ TTFT`, N=1) @ 8k / 32k / 64k / 128k | **1,796 / 1,793 / 1,852 / 1,746** |
+| MTP acceptance (depth 3) | mean length 2.8-3.1; per-position 0.85 / 0.57-0.65 / 0.37-0.52 |
 | Fidelity vs fp8 | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
+
+> **`:v2` updated in place 2026-07-06: MTP-4 → MTP-3.** A single-variable sweep (see
+> `benchmarks/configs.md`) measured MTP depth monotonically: 3 → ~65 t/s, 4 → ~51, 5 → ~47. The 4th
+> draft token accepted at only ~23% — a serial draft pass of nearly pure overhead on a no-NVLink,
+> latency-bound rig — so depth 3 is baked in. If you benched `:v2` before this date you were running
+> MTP-4 and would have seen ~51 t/s decode with the same prefill; everything else is unchanged.
+> Output quality is unaffected (speculative verification is exact; the probabilistic draft sampler
+> is unchanged).
 
 > **Correction (2026-07-06) — read this.** An earlier version of this table listed prefill
 > around **~2,900 t/s**. Those figures were NOT produced by `llm_decode_bench` — they came from

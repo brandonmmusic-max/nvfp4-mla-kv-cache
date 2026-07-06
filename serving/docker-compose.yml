@@ -1,6 +1,6 @@
 # GLM-5.2-MXFP8-NVFP4-NF3-Hybrid — DEFINITIVE self-contained DCP4 + nvfp4_ds_mla config.
 # = production-proven merge (base env + override) with fp8 -> nvfp4_ds_mla 4-bit MLA KV cache.
-# 4x RTX PRO 6000 96GB (SM120), TP4/DCP4, MTP-4. Boots at util 0.96 (weights ~90GB/GPU).
+# 4x RTX PRO 6000 96GB (SM120), TP4/DCP4, MTP-3. Boots at util 0.96 (weights ~90GB/GPU).
 # Copy-paste:  MODEL_DIR=./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid docker compose up
 name: glm52-nvfp4-kv
 services:
@@ -71,6 +71,6 @@ services:
       --enable-auto-tool-choice --tool-call-parser glm47
       --reasoning-parser glm45
       --hf-overrides '{"use_index_cache":true,"index_topk_pattern":"FFFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSSFSSS"}'
-      --speculative-config '{"method":"mtp","num_speculative_tokens":4,"moe_backend":"b12x","draft_sample_method":"probabilistic"}'
+      --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"b12x","draft_sample_method":"probabilistic"}'
 volumes:
   vllm-cache:

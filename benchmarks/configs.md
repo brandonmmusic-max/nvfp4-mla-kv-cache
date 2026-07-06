@@ -11,7 +11,7 @@ Hardware for all runs: 4x RTX PRO 6000 96GB (SM120), PCIe Gen5 no NVLink,
 (unmodified), concurrency 1, 30s/cell, max_tokens 8192, contexts 0/8K/32K unless noted.
 
 Published config (`verdictai/glm52-nvfp4-kv:v2`, `serving/docker-compose.yml`):
-`nvfp4_ds_mla · DCP4 · util0.96 · maxlen196608 · seqs4 · batched4096 · graph16 · MTP4 · PCIe all-reduce OFF`
+`nvfp4_ds_mla · DCP4 · util0.96 · maxlen196608 · seqs4 · batched4096 · graph16 · MTP3 · PCIe all-reduce OFF`
 
 > **Correction (2026-07-06).** This file previously (a) described the published config as
 > `:v1 / maxlen 250000` — that config OOM'd at load and never shipped; the shipped image is
@@ -27,7 +27,8 @@ Published config (`verdictai/glm52-nvfp4-kv:v2`, `serving/docker-compose.yml`):
 
 | Run | Image | KV dtype | DCP | maxlen | batched | util | graph | MTP | == published | Result (decode ctx0/8K/32K · prefill 8K · real-prose) |
 |-----|-------|----------|-----|--------|---------|------|-------|-----|--------------|-------------------------------------------------------|
-| nvfp4 DCP4 (published v2) | verdictai:v2 | nvfp4_ds_mla | 4 | 196608 | 4096 | 0.96 | 16 | 4 | **YES (exact)** | 51.9/51.7/50.1/51.5 · **1,804** · ~51 |
+| **nvfp4 DCP4 MTP-3 (published v2, 2026-07-06 update)** | verdictai:v2 | nvfp4_ds_mla | 4 | 196608 | 4096 | 0.96 | 16 | **3** | **YES (exact)** | **67.0/62.9/65.7 (128K: 63.2) · 1,796 · 63.6** |
+| nvfp4 DCP4 MTP-4 (v2 as first published) | verdictai:v2 (pre-update) | nvfp4_ds_mla | 4 | 196608 | 4096 | 0.96 | 16 | 4 | no (superseded by MTP-3) | 51.9/51.7/50.1/51.5 · 1,804 · ~54 |
 | nvfp4 DCP4 (older run, superseded) | base v2 | nvfp4_ds_mla | 4 | 250000 | 4096 | 0.96 | 16 | 4 | no (older basis, not shipped) | 88.5†/87.3†/53.5 · 3,185‡ · ~53 |
 | nvfp4 DCP1              | verdictai:v1 | nvfp4_ds_mla | 1 | 100000 | 4096 | 0.96  | 16 | 4 | no (DCP1, 100K) | 70.6/66.6/62.5 · 4,638 · 75.0 |
 | nvfp4 DCP2              | verdictai:v1 | nvfp4_ds_mla | 2 | 100000 | 4096 | 0.96  | 16 | 4 | no (DCP2, 100K) | 53.6/48.7/47.7 · 3,930 · 53.6 |
@@ -44,6 +45,19 @@ Published config (`verdictai/glm52-nvfp4-kv:v2`, `serving/docker-compose.yml`):
 probe). That old script on this same `:v2` server today still gives **~3,015 @ 8K**, vs **1,804**
 for the current v0.4.24 script (raw `tokens ÷ TTFT`) — same hardware, different ruler. Robust to
 PCIe all-reduce on/off (A/B: 1,804 vs 1,797). See the Correction box above.
+
+## Tier-1 single-variable A/B sweep (2026-07-06, all on verdictai:v2, 0.4.24 bench)
+One variable changed per run vs the MTP-4 baseline (51.9/51.7/50.1/51.5 · 1,804):
+- **MTP depth (the winner): 3 → 68.9/64.9/61.6/60.2 · 4 → baseline · 5 → 49.4/45.9/45.7/47.3.**
+  Monotonic 3 > 4 > 5: each draft step is a serial pass on a latency-bound rig and the 4th/5th
+  tokens accept at only ~23%/worse (confirmed per-position acceptance 0.85/0.57-0.65/0.37-0.52 at
+  depth 3, mean length 2.77-3.07). Confirm run reproduced: 67.0/62.9/65.7/63.2, prose 63.6 t/s.
+- draft greedy vs probabilistic: 52.9 vs 51.9 ctx0 = noise; probabilistic kept (production sampler).
+- `B12X_MLA_SM120_NUM_SPLITS` 1/2/4: no win (wave-balanced heuristic already optimal; splits=1
+  hurt 8K prefill: 1,099).
+- `VLLM_RTX6K_FUSED_ALLREDUCE_ADD=1`: 55.0 ctx0 but 45.9 @128K = net worse; stays 0.
+- `--dcp-comm-backend a2a`: **broken** on this stack (boots, generates 0 tokens); use ag_rs.
+- Prefill: flat 1,750-1,860 across every config — pinned by DCP4 PCIe collectives on no-NVLink.
 
 ## What each run isolated
 - **DCP sweep (DCP1/2/4)**: DCP=1 is the big speed lever on a no-NVLink rig (drops the cross-GPU

@@ -1,7 +1,8 @@
 # Speed & Capacity Benchmarks — nvfp4_ds_mla vs fp8, DCP sweep
 
 Model: GLM-5.2-MXFP8-NVFP4-NF3-Hybrid (753B, GlmMoeDsa MLA). 4x RTX PRO 6000 96GB
-(SM120), **PCIe Gen5, no NVLink**. TP4, MTP-4, `--max-num-batched-tokens=4096`,
+(SM120), **PCIe Gen5, no NVLink**. TP4, MTP-4 unless a row says otherwise (the shipped `:v2` is
+**MTP-3** since 2026-07-06 — see the MTP sweep below), `--max-num-batched-tokens=4096`,
 util 0.96, `B12X_MLA_SPARSE`. Bench: `llm_decode_bench.py` (unmodified), concurrency 1,
 30s/cell, max_tokens 8192. "Real-prose" = a 1500-token temp-1.0 thinking generation
 (the representative single-user rate).
@@ -23,16 +24,36 @@ image are the table right below. Where anything further down disagrees, trust th
   ruler. Server config is not the cause: an A/B (all-reduce OFF vs ON/cpp) gave the same 1,804 vs
   1,797.
 
-### Published `:v2` — unmodified `llm_decode_bench.py` (conc 1, all-reduce off, maxlen 196,608)
+### Published `:v2` (MTP-3, since 2026-07-06) — unmodified `llm_decode_bench.py` (conc 1, all-reduce off, maxlen 196,608)
 | ctx  | Decode t/s | Prefill t/s (`tokens ÷ TTFT`, N=1) |
 |------|-----------|------------------------------------|
-| 0    | 51.9      | —     |
-| 8k   | 51.7      | 1,804 |
-| 32k  | 50.1      | 1,807 |
-| 64k  | —         | 1,860 |
-| 128k | 51.5      | 1,754 |
+| 0    | **67.0**  | —     |
+| 8k   | **62.9**  | 1,796 |
+| 32k  | **65.7**  | 1,793 |
+| 64k  | —         | 1,852 |
+| 128k | **63.2**  | 1,746 |
 
-KV pool **407,808 tokens** (+47% vs fp8 ~262K). Decode is **flat ~51 t/s from 0→128k**.
+Real-prose (temp 1.0 chat): **~64 t/s**. KV pool **~407K tokens** (+47% vs fp8 ~262K).
+(The same image at its original MTP-4 measured 51.9/51.7/50.1/51.5 · 1,804 — see the sweep below.)
+
+### The MTP-depth sweep — why `:v2` ships MTP-3 (single-variable, same image/config)
+| num_speculative_tokens | Decode 0 / 8k / 32k / 128k |
+|---|---|
+| **3 (shipped)** | **68.9 / 64.9 / 61.6 / 60.2** (confirm run: 67.0/62.9/65.7/63.2) |
+| 4 | 51.9 / 51.7 / 50.1 / 51.5 |
+| 5 | 49.4 / 45.9 / 45.7 / 47.3 |
+
+Monotonic. Mechanism: each draft token is a serial MTP-head pass on a latency-bound rig, and
+acceptance decays hard with depth (measured per-position at depth 3: 0.85 / 0.57-0.65 / 0.37-0.52;
+at depth 4 the 4th position accepted only ~23%). Depth 3 stops paying a full pass for a token that
+almost never survives verification. Prefill is untouched by MTP depth. Verification is exact, so
+output quality is unchanged.
+
+Also swept on this image (none helped): draft greedy-vs-probabilistic (noise; probabilistic kept),
+`B12X_MLA_SM120_NUM_SPLITS` 1/2/4 (heuristic already optimal), `VLLM_RTX6K_FUSED_ALLREDUCE_ADD=1`
+(worse at 128K), `--dcp-comm-backend a2a` (**broken** on this stack — boots but generates nothing).
+Prefill was flat ~1,750-1,860 across every variant — on a no-NVLink rig it is pinned by the DCP4
+PCIe collectives, not by any of these knobs.
 
 ## TL;DR
 - **nvfp4_ds_mla is a CAPACITY win, not a speed win.** It gives **+47% KV tokens** vs fp8,
