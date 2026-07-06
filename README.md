@@ -40,7 +40,7 @@ with vLLM-family forks on consumer/workstation Blackwell (SM120, e.g. RTX PRO 60
 - Quality bar used: "same tokens as fp8 under production sampling", not bit-exact logits.
 - SM120 (consumer/workstation Blackwell). SM100/Hopper untested.
 
-Author: Brandon M. Music, 2026. Shared for research use; no license granted yet — open an
+Author: Brandon M. Music, 2026. Shared for research use; mit license — open an
 issue if you want to use this commercially.
 
 ## Serving (Docker Hub image)
