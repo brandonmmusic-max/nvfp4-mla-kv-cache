@@ -64,7 +64,7 @@ The only line that turns on the 4-bit MLA KV cache is:
 | Metric | fp8 | nvfp4_ds_mla |
 |---|---|---|
 | KV pool | ~262K tok | **387K tok** (+47%) |
-| Decode t/s (synthetic bench, conc1, ctx 0 / 8K / 32K) | ~54 / 50 / 52 | **88.5 / 87.3 / 53.5** |
+| Decode t/s (real-prose, single-user) | ~53 | ~53 (DCP4) / **75 (DCP1)** |
 | Prefill t/s (8K->128K) | ~2,880 -> 2,770 | 3,185 -> 2,842 |
 | Real-prose t/s (temp 1.0) | ~53 | ~55 |
 | Fidelity vs fp8 | — | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
@@ -74,3 +74,9 @@ Rebuild from source: `docker build -t glm52-nvfp4-kv -f serving/Dockerfile .`
 Tuning notes: `--max-cudagraph-capture-size` 16 is conservative for memory headroom; **64
 is faster** if the GPUs have capture headroom (nvfp4's smaller KV pages usually free enough).
 `--max-num-seqs` can drop to 1-2 for single-user to free KV for longer `--max-model-len`.
+
+## Benchmarks
+- [`benchmarks/fidelity.md`](benchmarks/fidelity.md) — nvfp4 vs fp8 output fidelity (generation-lossless)
+- [`benchmarks/speed.md`](benchmarks/speed.md) — full DCP sweep + fp8-vs-nvfp4 speed isolation.
+  **Key finding: nvfp4 = +47% KV capacity at ~7% speed cost; DCP=1 (not the KV dtype) is the
+  real speed lever on a no-NVLink rig (~75 vs ~53 t/s).**
