@@ -43,37 +43,53 @@ with vLLM-family forks on consumer/workstation Blackwell (SM120, e.g. RTX PRO 60
 Author: Brandon M. Music, 2026. Shared for research use; mit license — open an
 issue if you want to use this commercially.
 
-## Serving (Docker Hub image)
+## Serving (Docker Hub image) — copy-paste
 
-A ready-to-run image is published at **`verdictai/glm52-nvfp4-kv:v1`** (base layers
-cross-mounted from `madeby561/vllm-glm52-nvfp4-nf3-hybrid:v2`; this image adds the NVFP4
-MLA KV writer `.so` + the ported b12x MLA nvfp4 readers).
+The ready-to-run image is **`verdictai/glm52-nvfp4-kv:v2`**. It bakes the *entire* proven-good
+env block **and** the full `vllm serve` launch into the image itself, so there is nothing to
+drop and no wrong flag to pass — just mount the checkpoint at `/model`:
 
 ```bash
 hf download madeby561/GLM-5.2-MXFP8-NVFP4-NF3-Hybrid --local-dir ./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid
-docker pull verdictai/glm52-nvfp4-kv:v1
-MODEL_DIR=./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid docker compose -f serving/docker-compose.yml up -d
+docker pull verdictai/glm52-nvfp4-kv:v2
+
+docker run --rm --name glm52-nvfp4-kv \
+  --gpus all --network host --ipc host --shm-size 32g \
+  --ulimit memlock=-1 --ulimit stack=67108864 \
+  -v ./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid:/model:ro -v glm52-nvfp4-cache:/cache \
+  verdictai/glm52-nvfp4-kv:v2
 ```
 
-The only line that turns on the 4-bit MLA KV cache is:
-```
---kv-cache-dtype=nvfp4_ds_mla   (with --attention-backend=B12X_MLA_SPARSE)
-```
+Equivalents: `MODEL_DIR=./GLM-5.2-MXFP8-NVFP4-NF3-Hybrid ./serving/run.sh`, or
+`MODEL_DIR=... docker compose -f serving/docker-compose.yml up -d` (the compose spells out the
+same env + launch explicitly if you want to tune it). The line that turns on the 4-bit MLA KV
+cache is `--kv-cache-dtype=nvfp4_ds_mla` (requires `--attention-backend=B12X_MLA_SPARSE`).
 
-### Measured on this config (4x RTX PRO 6000 96GB, TP4/DCP4, MTP-4, util 0.96)
+### If you got an OOM at model load with an earlier config, read this
+On a 4x96GB rig the TP4 weights already occupy ~90GB/GPU, so load-time headroom is thin. Two
+settings decide whether it boots — both are now correct in `:v2` / the compose here:
+- **`VLLM_ENABLE_PCIE_ALLREDUCE=0` (backend `cpp`).** Turning the b12x PCIe all-reduce *on*
+  allocates extra GPU workspace during load and is what caused the `Tried to allocate 1.77 GiB`
+  OOM on GPU2/3. (nvfp4 uses *less* KV memory than fp8, so the OOM was never the KV cache.)
+- **`--max-model-len 196608`** (~192K), the value this config was actually benched at. Some
+  earlier notes said 250000; that was never the booted number.
+
+### Measured on this config (4x RTX PRO 6000 96GB, TP4/DCP4, MTP-4, util 0.96, maxlen 196608)
 | Metric | fp8 | nvfp4_ds_mla |
 |---|---|---|
-| KV pool | ~262K tok | **387K tok** (+47%) |
+| KV pool | ~262K tok | **~408K tok** (+47%) |
 | Decode t/s (real-prose, single-user) | ~53 | ~53 (DCP4) / **75 (DCP1)** |
-| Prefill t/s (8K->128K) | ~2,880 -> 2,770 | 3,185 -> 2,842 |
+| Prefill t/s (8K->128K) | ~2,880 -> 2,770 | ~2,900 -> 2,800 |
 | Real-prose t/s (temp 1.0) | ~53 | ~55 |
 | Fidelity vs fp8 | — | greedy 10/12, 64K needle identical, KL~0.02 (see benchmarks/fidelity.md) |
 
-Rebuild from source: `docker build -t glm52-nvfp4-kv -f serving/Dockerfile .`
+Rebuild the v2 image from source: `docker build -t verdictai/glm52-nvfp4-kv:v2 -f serving/Dockerfile.v2 .`
+(the `:v2` layer is just baked env + CMD on top of `:v1`, which carries the kernel + readers).
 
-Tuning notes: `--max-cudagraph-capture-size` 16 is conservative for memory headroom; **64
-is faster** if the GPUs have capture headroom (nvfp4's smaller KV pages usually free enough).
-`--max-num-seqs` can drop to 1-2 for single-user to free KV for longer `--max-model-len`.
+Tuning notes: `--max-cudagraph-capture-size` 16 is conservative for memory headroom; 64 can be
+faster if the GPUs have capture headroom. `--max-num-seqs` can drop to 1-2 for single-user to
+free KV for longer `--max-model-len`. **DCP=1 (not the KV dtype) is the real prefill/decode
+speed lever on a no-NVLink rig** — see `benchmarks/speed.md`.
 
 ## Benchmarks
 - [`benchmarks/fidelity.md`](benchmarks/fidelity.md) — nvfp4 vs fp8 output fidelity (generation-lossless)
